@@ -1,0 +1,7 @@
+data/
+results/*.json
+eval/candidates.jsonl
+__pycache__/
+*.egg-info/
+.venv/
+.env
