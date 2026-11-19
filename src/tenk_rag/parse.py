@@ -41,7 +41,8 @@ def _table_to_text(table) -> str:
     return "\n".join(rows)
 
 
-def html_to_text(html: str) -> str:
+def html_to_text(html: str | bytes) -> str:
+    # Passing raw bytes lets BeautifulSoup detect the encoding (UTF-8 or Windows-1252).
     soup = BeautifulSoup(html, "lxml")
     for tag in soup(["script", "style", "head"]):
         tag.decompose()
@@ -106,11 +107,11 @@ def split_items(text: str) -> list[dict]:
 
 def parse_filing(html_path: Path, out_dir: Path) -> Path:
     meta_path = html_path.with_suffix(".json")
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
     if not meta:
         ticker, year = html_path.stem.split("_")
         meta = {"ticker": ticker, "fiscal_year": int(year)}
-    text = html_to_text(html_path.read_text(errors="ignore"))
+    text = html_to_text(html_path.read_bytes())
     doc = {
         "doc_id": html_path.stem,
         "ticker": meta["ticker"],
@@ -121,8 +122,34 @@ def parse_filing(html_path: Path, out_dir: Path) -> Path:
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{html_path.stem}.json"
-    out.write_text(json.dumps(doc))
+    out.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_preview(doc, out_dir.parent / "preview" / f"{html_path.stem}.txt")
     return out
+
+
+def write_preview(doc: dict, path: Path) -> None:
+    """Human-readable copy of a parsed filing: a summary table of sections,
+    then each section's text with real line breaks. For checking parse quality;
+    the pipeline itself reads only the .json files."""
+    rule = "=" * 100
+    lines = [
+        rule,
+        f"  {doc['ticker']}  10-K  fiscal year {doc['fiscal_year']}   {doc.get('company', '')}",
+        f"  {doc.get('url', '')}",
+        rule,
+        "",
+        f"  {'Item':<6}{'Title':<60}{'Words':>9}{'Tables':>9}",
+        "  " + "-" * 84,
+    ]
+    for s in doc["sections"]:
+        lines.append(f"  {s['item']:<6}{s['title'][:58]:<60}{len(s['text'].split()):>9,}"
+                     f"{s['text'].count('[TABLE]'):>9}")
+    total = sum(len(s["text"].split()) for s in doc["sections"])
+    lines += [f"  {'':<6}{'TOTAL':<60}{total:>9,}", ""]
+    for s in doc["sections"]:
+        lines += ["", rule, f"  ITEM {s['item']}: {s['title'].upper()}", rule, "", s["text"], ""]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def parse_all(raw_dir: str | Path, out_dir: str | Path) -> list[Path]:
@@ -130,7 +157,7 @@ def parse_all(raw_dir: str | Path, out_dir: str | Path) -> list[Path]:
     outs = []
     for html in sorted(raw_dir.glob("*.html")):
         out = parse_filing(html, out_dir)
-        n = len(json.loads(out.read_text())["sections"])
+        n = len(json.loads(out.read_text(encoding="utf-8"))["sections"])
         print(f"[parsed] {html.stem}: {n} sections")
         outs.append(out)
     return outs
