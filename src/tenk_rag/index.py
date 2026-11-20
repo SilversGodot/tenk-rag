@@ -54,12 +54,12 @@ class Index:
             vectors = embedder.embed_passages([c["header"] + "\n" + c["text"] for c in chunks])
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        with open(out_dir / "chunks.jsonl", "w") as f:
+        with open(out_dir / "chunks.jsonl", "w", encoding="utf-8") as f:
             for c in chunks:
                 f.write(json.dumps(c) + "\n")
         if vectors is not None:
             np.save(out_dir / "vectors.npy", vectors)
-            (out_dir / "meta.json").write_text(json.dumps({"embedding_model": embedder.model_name}))
+            (out_dir / "meta.json").write_text(json.dumps({"embedding_model": embedder.model_name}), encoding="utf-8")
         print(f"[index] {len(chunks)} chunks -> {out_dir}")
         return Index(chunks, vectors)
 
@@ -68,7 +68,7 @@ class Index:
         index_dir = Path(index_dir)
         if not (index_dir / "chunks.jsonl").exists():
             raise FileNotFoundError(f"No index at {index_dir}. Run: python -m tenk_rag.cli index")
-        chunks = [json.loads(l) for l in open(index_dir / "chunks.jsonl")]
+        chunks = [json.loads(l) for l in open(index_dir / "chunks.jsonl", encoding="utf-8")]
         vec_path = index_dir / "vectors.npy"
         vectors = np.load(vec_path) if vec_path.exists() else None
         return Index(chunks, vectors)

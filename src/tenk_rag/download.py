@@ -80,7 +80,7 @@ def download_filings(tickers: list[str], per_company: int, out_dir: str | Path,
             url = ARCHIVE_URL.format(cik=cik, acc=f["accession"].replace("-", ""), doc=f["primary_doc"])
             html_path.write_bytes(client.get(url).content)
             meta = {"ticker": ticker, "cik": cik, "fiscal_year": fiscal_year, "url": url, **f}
-            (out_dir / f"{stem}.json").write_text(json.dumps(meta, indent=2))
+            (out_dir / f"{stem}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
             print(f"[ok] {stem}  ({f['filing_date']})")
             saved.append(html_path)
     return saved

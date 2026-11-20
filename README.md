@@ -32,18 +32,33 @@ EDGAR ─► download ─► parse (HTML → text, split by Item, tables kept as
 
 ## Setup
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt && pip install -e .
-export ANTHROPIC_API_KEY=...        # only needed for answering, judging, drafting questions
+Commands below are for Windows PowerShell, run from the project folder.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pip install -e .
+$env:ANTHROPIC_API_KEY = "sk-ant-..."   # only needed for answering, judging, drafting questions
 ```
+
+If activation fails with "running scripts is disabled on this system", run
+this once and try again:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+`$env:` variables last only for the current terminal window. To set the key
+permanently for your user account, run
+`setx ANTHROPIC_API_KEY "sk-ant-..."` once, then open a new terminal.
 
 Edit `config.yaml`: set `corpus.user_agent` to your name and email (the SEC
 requires it) and pick your companies.
 
 ## Run it
 
-```bash
+```powershell
 python -m tenk_rag.cli download          # ~30 filings for the default 10 companies
 python -m tenk_rag.cli parse
 python -m tenk_rag.cli index             # builds the default index (downloads the embedding model once)
@@ -72,7 +87,7 @@ chunking experiment.
 
 ## Run experiments
 
-```bash
+```powershell
 python -m tenk_rag.cli eval --experiment hybrid --retrieval-only   # free and fast: recall@k, MRR
 python -m tenk_rag.cli eval --experiment hybrid                    # adds answers + LLM judge
 python -m tenk_rag.cli compare                                     # markdown table of all results
@@ -97,6 +112,6 @@ agree with it.
 
 ## Tests
 
-```bash
+```powershell
 pytest -q     # offline, uses a synthetic filing
 ```

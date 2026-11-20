@@ -47,7 +47,7 @@ Reply as JSON: {{"correctness": <0|0.5|1>, "faithfulness": <0|1>, "reason": "<on
 
 
 def load_questions(path: str | Path) -> list[dict]:
-    return [json.loads(l) for l in open(path) if l.strip()]
+    return [json.loads(l) for l in open(path, encoding="utf-8-sig") if l.strip()]
 
 
 def evidence_hit(chunk_text: str, evidence: str, min_coverage: float = 0.8) -> bool:
@@ -107,7 +107,7 @@ def run_eval(questions: list[dict], retriever, llm: LLM | None, out_path: Path,
     if llm is not None:
         summary["llm_usage"] = llm.usage
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2))
+    out_path.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2), encoding="utf-8")
     return summary
 
 
@@ -147,6 +147,6 @@ def compare(results_dir: str | Path) -> str:
             "correct_refusal_rate", "avg_retrieval_seconds"]
     lines = ["| experiment | " + " | ".join(cols) + " |", "|" + "---|" * (len(cols) + 1)]
     for p in sorted(Path(results_dir).glob("*.json")):
-        s = json.loads(p.read_text())["summary"]
+        s = json.loads(p.read_text(encoding="utf-8"))["summary"]
         lines.append(f"| {p.stem} | " + " | ".join(str(s.get(c, "")) for c in cols) + " |")
     return "\n".join(lines)

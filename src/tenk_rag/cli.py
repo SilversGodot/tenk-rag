@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import json
 from pathlib import Path
 
@@ -54,10 +55,16 @@ def _retriever(cfg, settings):
 
 
 def main(argv=None):
+    # Windows consoles and redirected output (> file.txt) default to a legacy encoding;
+    # force UTF-8 so filing text with curly quotes, dashes, etc. never crashes printing.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(prog="tenk_rag")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("download")
     sub.add_parser("parse")
+    sub.add_parser("preview", help="rewrite readable .txt files in data/preview from parsed JSON")
     pi = sub.add_parser("index"); pi.add_argument("--experiment")
     pa = sub.add_parser("ask")
     pa.add_argument("question"); pa.add_argument("--ticker"); pa.add_argument("--year", type=int)
@@ -85,6 +92,12 @@ def main(argv=None):
     elif args.cmd == "parse":
         from .parse import parse_all
         parse_all(raw, parsed)
+        print(f"[preview] readable copies written to {parsed.parent / 'preview'}")
+
+    elif args.cmd == "preview":
+        from .parse import write_all_previews
+        n = write_all_previews(parsed)
+        print(f"[preview] wrote {n} files to {parsed.parent / 'preview'}")
 
     elif args.cmd == "index":
         from .index import Index

@@ -95,7 +95,7 @@ def chunk_document(doc: dict, strategy: str, size: int, overlap: int) -> list[di
 def chunk_corpus(parsed_dir: str | Path, strategy: str, size: int, overlap: int) -> list[dict]:
     chunks = []
     for path in sorted(Path(parsed_dir).glob("*.json")):
-        chunks.extend(chunk_document(json.loads(path.read_text()), strategy, size, overlap))
+        chunks.extend(chunk_document(json.loads(path.read_text(encoding="utf-8")), strategy, size, overlap))
     return chunks
 
 

@@ -93,3 +93,55 @@ def test_rrf_and_summary():
             {"answerable": False, "type": "unanswerable"}]
     s = summarize(rows)
     assert s["recall_at_k"] == 0.5 and s["by_type"]["table"]["recall_at_k"] == 1.0
+
+
+def test_parse_handles_utf8_and_windows1252_bytes():
+    html = "<html><head><meta charset='{cs}'></head><body><p>Apple’s net sales — up 5%</p></body></html>"
+    for cs in ("utf-8", "windows-1252"):
+        text = html_to_text(html.format(cs=cs).encode(cs))
+        assert "Apple’s net sales — up 5%" in text, (cs, text)
+
+
+def test_preview_tables_are_aligned():
+    from tenk_rag.parse import format_table
+    rows = format_table(["Segment | 2025 | 2024", "Industrial widgets | 4,210 | 3,750", "Other | (12) % | 995"])
+    body = [r for r in rows if r.startswith("  | ")]
+    assert len({len(r) for r in rows}) == 1          # every row the same width
+    assert body[1].index("4,210") + 5 == body[2].index("(12) %") + 6  # numbers right-aligned
+
+
+def test_running_page_headers_are_merged():
+    # Microsoft-style: "PART II / Item 7" repeated at the top of every page.
+    body = lambda tag: " ".join([f"{tag} discussion sentence."] * 40)
+    text = "\n".join([
+        "Item 1. Business", "Item 7. MD&A", "Item 8. Financial Statements",   # table of contents
+        "Item 1. Business", body("Business"),
+        "Item 7. Management's Discussion and Analysis", body("Page one MD&A"),
+        "PART II", "Item 7", body("Page two MD&A"),
+        "PART II", "Item 7", body("Page three MD&A"),
+        "Item 8. Financial Statements", body("Statements"),
+    ])
+    secs = {s["item"]: s["text"] for s in split_items(text)}
+    assert all(p in secs["7"] for p in ("Page one", "Page two", "Page three"))
+    assert "PART II" not in secs["7"]
+
+
+def test_financial_section_relocated_from_later_item():
+    # Chevron/JPMorgan-style: Items 7 and 8 only cross-reference; the content
+    # sits after Part III.
+    filler = lambda tag: "\n".join([" ".join([f"{tag} sentence."] * 30)] * 100)  # > HOST_WORDS
+    text = "\n".join([
+        "Item 1. Business", filler("Business"),
+        "Item 7. Management's Discussion and Analysis",
+        "The index to MD&A is presented in the Financial Table of Contents.",
+        "Item 8. Financial Statements and Supplementary Data",
+        "The index to Financial Statements is presented in the Financial Table of Contents.",
+        "Item 14. Principal Accountant Fees and Services", "Incorporated by reference.",
+        "Financial Table of Contents", "MD&A | 37", "Statements | 62", "Notes | 70",
+        "Management's Discussion and Analysis of Financial Condition", filler("Revenue rose"),
+        "Report of Independent Registered Public Accounting Firm", filler("Balance sheet"),
+    ])
+    secs = {s["item"]: s["text"] for s in split_items(text)}
+    assert "Revenue rose" in secs["7"] and "Balance sheet" not in secs["7"]
+    assert "Balance sheet" in secs["8"] and "Revenue rose" not in secs["8"]
+    assert "Revenue rose" not in secs["14"]

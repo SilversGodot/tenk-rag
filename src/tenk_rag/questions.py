@@ -45,7 +45,7 @@ def draft_questions(chunks: list[dict], llm: LLM, n_chunks: int, per_chunk: int,
 
     kept = 0
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "a") as f:
+    with open(out_path, "a", encoding="utf-8") as f:
         for c in sample:
             try:
                 items = llm.complete_json(SYSTEM, PROMPT.format(header=c["header"], text=c["text"], n=per_chunk))
