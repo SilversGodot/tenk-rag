@@ -36,7 +36,19 @@ def _table_to_text(table) -> str:
     rows = []
     for tr in table.find_all("tr"):
         cells = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
-        cells = [c for c in cells if c and c not in {"$", "%", ")"}]
+        # Filings put "$", ")" and "%" in their own cells. Drop "$"; attach ")"
+        # and "%" to the number before them so "(36" becomes "(36)".
+        merged = []
+        for c in cells:
+            if not c or c == "$":
+                continue
+            if c in {")", "%", ")%", "%)"} and merged:
+                merged[-1] += c
+            else:
+                merged.append(c)
+        cells = merged
+        # "( 794 )" -> "(794)": filings split negatives across cells/spans
+        cells = [re.sub(r"\(\s+", "(", re.sub(r"\s+\)", ")", c)) for c in cells]
         if cells:
             rows.append(" | ".join(cells))
     return "\n".join(rows)
@@ -70,6 +82,26 @@ def html_to_text(html: str | bytes) -> str:
         blank = 0
         out.append(ln)
     return "\n".join(out).strip()
+
+
+def _balance_tables(text: str) -> str:
+    """Some filers put Item headings inside a table row ("Item 1. | Business"),
+    so a section can start or end mid-table. Reopen or close those tables so
+    every [TABLE] has a matching [/TABLE]."""
+    out, open_ = [], False
+    for line in text.split("\n"):
+        if line == "[TABLE]":
+            if open_:
+                out.append("[/TABLE]")
+            open_ = True
+        elif line == "[/TABLE]":
+            if not open_:
+                continue  # closer for a table that began in the previous section
+            open_ = False
+        out.append(line)
+    if open_:
+        out.append("[/TABLE]")
+    return "\n".join(out)
 
 
 PART_RE = re.compile(r"^\s*part\s+(i{1,3}|iv)\s*\.?\s*$", re.IGNORECASE)
@@ -123,7 +155,7 @@ def split_items(text: str) -> list[dict]:
                     body_lines.pop()
                 continue
             body_lines.append(lines[i])
-        body = "\n".join(body_lines).strip()
+        body = _balance_tables("\n".join(body_lines).strip())
         if len(body) < 50:
             continue
         sections.append({"item": item, "title": ITEM_TITLES[item], "text": body})
@@ -188,9 +220,10 @@ def relocate_financial_sections(sections: list[dict]) -> list[dict]:
         return sections
     else:
         exhibits = audit  # Item 8 not moved: leave statements in the host
-    host["text"] = "\n".join(lines[:keep_until] + lines[exhibits:]).strip()
+    host["text"] = _balance_tables("\n".join(lines[:keep_until] + lines[exhibits:]).strip())
 
     for item, text in moved.items():
+        text = _balance_tables(text)
         note = f"[Relocated from Item {host['item']}: this filer places this content outside Item {item}]\n"
         if item in by_item:
             by_item[item]["text"] = by_item[item]["text"] + "\n\n" + note + text
@@ -251,29 +284,46 @@ def write_preview(doc: dict, path: Path) -> None:
 
 
 NUMERIC_RE = re.compile(r"^[($\-—–]*[\d,.]+\)?\s?%?$|^[—–\-]$")
-MAX_LABEL = 60   # wrap long row labels so tables stay a readable width
+MAX_LABEL = 50   # wrap long row labels so tables stay a readable width
+MAX_CELL = 30    # and long text cells (e.g. exhibit descriptions)
 
 
 def format_table(rows: list[str]) -> list[str]:
     """Align pipe-delimited rows into columns: labels left, numbers right.
     Used only for preview files; the pipeline keeps the compact pipe format."""
+    from .chunk import _header_rows
     table = [[c.strip() for c in r.split(" | ")] for r in rows]
     ncols = max(len(r) for r in table)
+    # A header row of only column titles (e.g. dates) has no label cell;
+    # give it an empty one so the titles sit above their columns.
+    first_data = next((i for i, r in enumerate(table) if r[0] != "(table continued)"), 0)
+    for i in range(first_data, first_data + _header_rows(rows[first_data:])):
+        if 2 <= len(table[i]) < ncols:
+            table[i] = [""] + table[i]
     # Numeric rows usually have fewer cells than ncols when header cells span
     # columns; right-align short rows so their numbers line up under the years.
     padded = [[r[0]] + [""] * (ncols - len(r)) + r[1:] if len(r) > 1 else r + [""] * (ncols - 1)
               for r in table]
     widths = [min(MAX_LABEL, max(len(r[0]) for r in padded))]
-    widths += [max(len(r[i]) for r in padded) for i in range(1, ncols)]
+    widths += [min(MAX_CELL, max(len(r[i]) for r in padded)) for i in range(1, ncols)]
+    widths = [max(w, 1) for w in widths]
 
     out = ["  +" + "-" * (sum(widths) + 3 * (ncols - 1) + 2) + "+"]
     for r in padded:
-        label_lines = textwrap.wrap(r[0], widths[0]) or [""]
-        for n, label in enumerate(label_lines):
-            cells = [label.ljust(widths[0])]
-            for i in range(1, ncols):
-                val = r[i] if n == len(label_lines) - 1 else ""  # numbers on the label's last line
-                cells.append(val.rjust(widths[i]) if NUMERIC_RE.match(val or "0") else val.ljust(widths[i]))
+        # Wrap every cell to its column width; a row becomes as many lines as
+        # its tallest cell. Numbers go on the row's last line, beside the end
+        # of a wrapped label, as they appear in the filing.
+        wrapped = [textwrap.wrap(c, widths[i]) or [""] for i, c in enumerate(r)]
+        height = max(len(w) for w in wrapped)
+        for n in range(height):
+            cells = []
+            for i, w in enumerate(wrapped):
+                numeric = i > 0 and NUMERIC_RE.match(r[i] or "0")
+                if numeric:
+                    val = r[i] if n == height - 1 else ""
+                    cells.append(val.rjust(widths[i]))
+                else:
+                    cells.append((w[n] if n < len(w) else "").ljust(widths[i]))
             out.append("  | " + " | ".join(cells) + " |")
     out.append(out[0])
     return out

@@ -145,3 +145,35 @@ def test_financial_section_relocated_from_later_item():
     assert "Revenue rose" in secs["7"] and "Balance sheet" not in secs["7"]
     assert "Balance sheet" in secs["8"] and "Revenue rose" not in secs["8"]
     assert "Revenue rose" not in secs["14"]
+
+
+def test_large_tables_split_between_rows_with_header():
+    from tenk_rag.chunk import _section
+    rows = ["Line item | 2025 | 2024"] + [f"Expense category {i} | {i},000 | {i},500" for i in range(80)]
+    text = "Intro paragraph.\n[TABLE]\n" + "\n".join(rows) + "\n[/TABLE]"
+    chunks = _section(text, size=100, overlap=10)
+    table_chunks = [c for c in chunks if "[TABLE]" in c]
+    assert len(table_chunks) > 1
+    for c in table_chunks:
+        lines = c.split("\n")
+        assert lines[0] == "[TABLE]" and lines[-1] == "[/TABLE]"
+        assert "Line item | 2025 | 2024" in lines[1:3]       # header repeated on every piece
+        assert all(" | " in l for l in lines[1:-1] if l != "(table continued)")  # rows never cut
+    assert "(table continued)" in table_chunks[1]
+
+
+def test_two_row_table_header_detected():
+    from tenk_rag.chunk import _header_rows
+    apple = ["Years ended", "September 27, 2025 | September 28, 2024", "Net sales:", "Products | 307,003 | 294,866"]
+    assert _header_rows(apple) == 2
+    assert _header_rows(["Segment | 2025 | 2024", "Industrial | 4,210 | 3,750"]) == 1
+    assert _header_rows(["Industrial | 4,210 | 3,750", "Consumer | 1,105 | 995"]) == 0
+
+
+def test_item_heading_inside_table_keeps_tables_balanced():
+    # Amazon-style: the Item heading is itself a table row.
+    filler = " ".join(["Body sentence."] * 30)
+    text = "\n".join(["[TABLE]", "Item 1. | Business", "[/TABLE]", filler,
+                      "[TABLE]", "Name | Age", "Jane Doe | 50", "Item 1A. | Risk Factors", "[/TABLE]", filler])
+    for s in split_items(text):
+        assert s["text"].count("[TABLE]") == s["text"].count("[/TABLE]"), s["text"]

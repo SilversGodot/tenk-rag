@@ -22,24 +22,37 @@ def _found_by(h: dict) -> str:
 
 
 def _wrap_body(text: str) -> str:
-    """Wrap prose to the screen width; leave table rows untouched."""
-    out, in_table = [], False
+    """Wrap prose to the screen width and draw tables as aligned columns."""
+    from .parse import format_table
+    out, table = [], None
     for line in text.split("\n"):
         if line == "[TABLE]":
-            in_table = True
-            out.append("  +-- table " + "-" * (WIDTH - 13))
-            continue
-        if line == "[/TABLE]":
-            in_table = False
-            out.append("  +" + "-" * (WIDTH - 3))
-            continue
-        if in_table:
-            out.append("  | " + line)
+            table = []
+        elif line == "[/TABLE]":
+            if table:
+                out += [""] + format_table(table) + [""]
+            table = None
+        elif table is not None:
+            table.append(line)
         elif not line.strip():
             out.append("")
         else:
             out.extend(textwrap.wrap(line, WIDTH - 2, initial_indent="  ", subsequent_indent="  "))
+    if table:  # chunk ended inside a table (e.g. the "fixed" chunking strategy)
+        out += [""] + format_table(table)
     return "\n".join(out)
+
+
+def format_chunk_list(chunks: list[dict], title: str) -> str:
+    """All chunks of a filing (or one Item), in document order, for inspection."""
+    sizes = [len(c["text"].split()) for c in chunks]
+    lines = ["#" * WIDTH, f"  {title}",
+             f"  {len(chunks)} chunks, {min(sizes, default=0)}-{max(sizes, default=0)} words each,"
+             f" {sum(c.get('has_table', False) for c in chunks)} with tables",
+             "#" * WIDTH]
+    for n, c in enumerate(chunks, 1):
+        lines += ["", format_chunk(n, len(chunks), c)]
+    return "\n".join(lines) + "\n"
 
 
 def format_chunk(rank: int, total: int, h: dict) -> str:
@@ -49,7 +62,7 @@ def format_chunk(rank: int, total: int, h: dict) -> str:
         f"  Company   : {h['ticker']}   Fiscal year: {h['fiscal_year']}",
         f"  Section   : Item {h['item']} - {h['item_title']}",
         f"  Chunk ID  : {h['chunk_id']}",
-        f"  Found by  : {_found_by(h)}",
+        *([f"  Found by  : {_found_by(h)}"] if "vector_rank" in h or "bm25_rank" in h else []),
         f"  Size      : {len(h['text'].split())} words{'   (contains a table)' if h.get('has_table') else ''}",
     ]
     if h.get("url"):

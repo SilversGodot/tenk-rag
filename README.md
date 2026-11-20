@@ -65,8 +65,25 @@ python -m tenk_rag.cli index             # builds the default index (downloads t
 python -m tenk_rag.cli ask "What were Apple's total net sales in fiscal 2025?" --ticker AAPL --year 2025 --show-chunks
 ```
 
-Look at the parsed output in `data/parsed/` early. 10-K HTML varies a lot
-between companies, and parsing problems quietly cap every later metric.
+Look at the parsed output early. 10-K HTML varies a lot between companies,
+and parsing problems quietly cap every later metric.
+
+| To see | Run | Output |
+|---|---|---|
+| A whole filing, section by section | `python -m tenk_rag.cli preview` | `data\preview\AAPL_2025.txt` |
+| How a filing was split into chunks | `python -m tenk_rag.cli chunks --ticker AAPL --year 2025 --item 8` | `data\preview\chunks\AAPL_2025_item8_section_400_50.txt` |
+| What search returns, without an API call | `python -m tenk_rag.cli ask "..." --ticker AAPL --year 2025 --no-llm` | printed to the terminal |
+
+Add `--experiment fixed_256` (or any experiment name) to `chunks` to compare
+chunking strategies side by side.
+
+Parser handling worth knowing about:
+- Running page headers (Microsoft repeats "Item 7" on every page) are merged.
+- When a filer puts the MD&A or financial statements outside Items 7 and 8
+  (Chevron, JPMorgan, NVIDIA), the content is moved back and labeled
+  "[Relocated from Item N ...]".
+- Large tables are split between rows, never inside one, and each piece
+  repeats the column header.
 
 ## Build the eval set (the most important step)
 

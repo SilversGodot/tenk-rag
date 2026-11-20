@@ -3,6 +3,7 @@
   python -m tenk_rag.cli download
   python -m tenk_rag.cli parse
   python -m tenk_rag.cli index [--experiment NAME]
+  python -m tenk_rag.cli chunks --ticker AAPL --year 2025 [--item 7] [--experiment NAME]
   python -m tenk_rag.cli ask "What were Apple's main risk factors in FY2025?" --ticker AAPL --year 2025
   python -m tenk_rag.cli draft-questions --chunks 40
   python -m tenk_rag.cli eval --experiment hybrid [--retrieval-only]
@@ -66,6 +67,9 @@ def main(argv=None):
     sub.add_parser("parse")
     sub.add_parser("preview", help="rewrite readable .txt files in data/preview from parsed JSON")
     pi = sub.add_parser("index"); pi.add_argument("--experiment")
+    pc = sub.add_parser("chunks", help="write one filing's chunks to a readable .txt file")
+    pc.add_argument("--ticker", required=True); pc.add_argument("--year", type=int, required=True)
+    pc.add_argument("--item", help="only this Item, e.g. 7 or 1A"); pc.add_argument("--experiment")
     pa = sub.add_parser("ask")
     pa.add_argument("question"); pa.add_argument("--ticker"); pa.add_argument("--year", type=int)
     pa.add_argument("--experiment"); pa.add_argument("--show-chunks", action="store_true")
@@ -98,6 +102,29 @@ def main(argv=None):
         from .parse import write_all_previews
         n = write_all_previews(parsed)
         print(f"[preview] wrote {n} files to {parsed.parent / 'preview'}")
+
+    elif args.cmd == "chunks":
+        from .chunk import chunk_document
+        from .display import format_chunk_list
+        s = PipelineSettings.from_config(cfg, args.experiment)
+        doc_id = f"{args.ticker.upper()}_{args.year}"
+        path = parsed / f"{doc_id}.json"
+        if not path.exists():
+            available = sorted(p.stem for p in parsed.glob("*.json"))
+            sys.exit(f"No parsed filing {doc_id}. Available: {', '.join(available)}")
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        chunks = chunk_document(doc, s.chunk_strategy, s.chunk_size, s.chunk_overlap)
+        if args.item:
+            chunks = [c for c in chunks if c["item"] == args.item.upper()]
+            if not chunks:
+                sys.exit(f"No chunks for Item {args.item.upper()} in {doc_id}.")
+        title = (f"{doc_id}{' Item ' + args.item.upper() if args.item else ''}"
+                 f"  |  chunking: {s.chunk_strategy}, {s.chunk_size} words, overlap {s.chunk_overlap}")
+        out_dir = parsed.parent / "preview" / "chunks"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out = out_dir / f"{doc_id}{'_item' + args.item.upper() if args.item else ''}_{s.index_name}.txt"
+        out.write_text(format_chunk_list(chunks, title), encoding="utf-8")
+        print(f"[chunks] {len(chunks)} chunks written to {out}")
 
     elif args.cmd == "index":
         from .index import Index
